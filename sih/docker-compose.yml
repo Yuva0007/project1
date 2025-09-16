@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: grievance-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: grievance_portal
+      MYSQL_USER: grievance_user
+      MYSQL_PASSWORD: grievance_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - grievance-network
+    restart: unless-stopped
+
+  # Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: grievance-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - grievance-network
+    restart: unless-stopped
+
+  # Backend Spring Boot Application
+  backend:
+    build:
+      context: ./demo
+      dockerfile: Dockerfile
+    container_name: grievance-backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/grievance_portal
+      SPRING_DATASOURCE_USERNAME: grievance_user
+      SPRING_DATASOURCE_PASSWORD: grievance_password
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      EMAIL_USERNAME: ${EMAIL_USERNAME}
+      EMAIL_PASSWORD: ${EMAIL_PASSWORD}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - grievance-network
+    restart: unless-stopped
+    volumes:
+      - uploads:/app/uploads
+
+  # Frontend React Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: grievance-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - grievance-network
+    restart: unless-stopped
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: grievance-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - grievance-network
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  redis_data:
+  uploads:
+
+networks:
+  grievance-network:
+    driver: bridge
